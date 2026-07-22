@@ -1,12 +1,16 @@
 # Claude release gate and GitHub Pages
 
-The release workflow is deliberately manual so Claude is called only once per intended release.
+The release workflow runs once after an accepted application or release-configuration change reaches `main`. It can also be started manually when a release must be repeated without a code change.
 
 ## Required secret
 
 Create the repository Actions secret `ANTHROPIC_API_KEY`. Never paste its value into source files, issues, logs, or prompts.
 
-## Release
+## Automatic release
+
+Merge a validated pull request that changes the application, package manifest, Vite configuration, or release workflow. Documentation-only changes do not call Claude or deploy the site.
+
+## Manual repeat
 
 1. Open **Actions**.
 2. Select **Claude release gate and Pages deploy**.
