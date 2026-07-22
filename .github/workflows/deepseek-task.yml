@@ -104,3 +104,20 @@ jobs:
           echo "### DeepSeek task completed" >> "$GITHUB_STEP_SUMMARY"
           echo "$PR_URL" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Preserve failed generated candidate
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deepseek-task-001-failed-candidate
+          path: |
+            package.json
+            package-lock.json
+            index.html
+            vite.config.ts
+            vitest.config.ts
+            tsconfig*.json
+            src/
+            public/
+            .deepseek-run.json
+          if-no-files-found: ignore
+          retention-days: 3
