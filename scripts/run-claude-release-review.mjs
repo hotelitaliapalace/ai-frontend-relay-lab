@@ -53,7 +53,9 @@ const response = await fetch('https://api.anthropic.com/v1/messages', {
   },
   body: JSON.stringify({
     model,
-    max_tokens: 1200,
+    max_tokens: 2000,
+    thinking: { type: 'disabled' },
+    output_config: { effort: 'low' },
     system: 'Act as a concise software release reviewer. Output valid JSON only.',
     messages: [{ role: 'user', content: prompt }],
   }),
