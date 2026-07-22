@@ -1,0 +1,106 @@
+name: DeepSeek task runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_path:
+        description: Task file to implement
+        required: true
+        type: choice
+        options:
+          - TASKS/TASK-001.md
+      issue_number:
+        description: GitHub issue to reference
+        required: true
+        default: "2"
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: deepseek-task-001
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    name: Implement selected task
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TASK_PATH: ${{ inputs.task_path }}
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      BRANCH_NAME: ai/task-001-planner-shell
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate configuration
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          test -n "$DEEPSEEK_API_KEY" || { echo "DEEPSEEK_API_KEY is not configured"; exit 1; }
+          test "$TASK_PATH" = "TASKS/TASK-001.md" || { echo "Unsupported task path"; exit 1; }
+          if git ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1; then
+            echo "Branch $BRANCH_NAME already exists; refusing to overwrite it"
+            exit 1
+          fi
+
+      - name: Create isolated task branch
+        run: git switch -c "$BRANCH_NAME"
+
+      - name: Ask DeepSeek to implement the task
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_MODEL: deepseek-v4-pro
+        run: node scripts/run-deepseek-task.mjs generate "$TASK_PATH"
+
+      - name: Install generated project dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run TypeScript check
+        run: npm run typecheck
+
+      - name: Run component tests
+        run: npm run test
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Finalize handoff
+        run: node scripts/run-deepseek-task.mjs finalize "$TASK_PATH"
+
+      - name: Commit and push implementation
+        run: |
+          git config user.name "deepseek-task-runner[bot]"
+          git config user.email "deepseek-task-runner[bot]@users.noreply.github.com"
+          git add --all
+          git diff --cached --quiet && { echo "DeepSeek produced no changes"; exit 1; }
+          git commit -m "feat: implement TASK-001 planner shell"
+          git push --set-upstream origin "$BRANCH_NAME"
+
+      - name: Open draft pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_URL=$(gh pr create \
+            --draft \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --title "TASK-001: Build the accessible planner shell" \
+            --body "DeepSeek implementation for #${ISSUE_NUMBER}. Generated on an isolated branch, validated with typecheck, component tests, and production build. Next review role: Codex.")
+          gh issue comment "$ISSUE_NUMBER" --body "DeepSeek implementation opened for Codex review: $PR_URL"
+          echo "### DeepSeek task completed" >> "$GITHUB_STEP_SUMMARY"
+          echo "$PR_URL" >> "$GITHUB_STEP_SUMMARY"
+
