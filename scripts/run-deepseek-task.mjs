@@ -124,6 +124,41 @@ function validatePackageJson(content) {
   }
 }
 
+function validateRelativeImports(files) {
+  const generatedPaths = new Set(files.map((file) => file.path));
+  const extensions = ["", ".ts", ".tsx", ".js", ".jsx", ".css", ".json"];
+  const indexFiles = ["index.ts", "index.tsx", "index.js", "index.jsx"];
+  const unresolved = [];
+
+  for (const file of files) {
+    if (!/\.(?:ts|tsx|js|jsx|css)$/.test(file.path)) continue;
+
+    const specifiers = new Set();
+    const patterns = [
+      /(?:from\s*|import\s*)["'](\.[^"']+)["']/g,
+      /import\s*\(\s*["'](\.[^"']+)["']\s*\)/g,
+    ];
+    for (const pattern of patterns) {
+      for (const match of file.content.matchAll(pattern)) specifiers.add(match[1]);
+    }
+
+    for (const specifier of specifiers) {
+      const base = path.posix.normalize(path.posix.join(path.posix.dirname(file.path), specifier));
+      const candidates = [
+        ...extensions.map((extension) => `${base}${extension}`),
+        ...indexFiles.map((indexFile) => `${base}/${indexFile}`),
+      ];
+      if (!candidates.some((candidate) => generatedPaths.has(candidate))) {
+        unresolved.push(`${file.path} -> ${specifier}`);
+      }
+    }
+  }
+
+  if (unresolved.length > 0) {
+    fail(`Generated relative imports do not resolve: ${unresolved.join(", ")}`);
+  }
+}
+
 async function readText(relativePath) {
   return readFile(path.join(root, relativePath), "utf8");
 }
@@ -156,6 +191,7 @@ Rules:
 - Do not modify governance files, TASKS, .github, scripts, README, CLAUDE.md, AGENTS.md, or HANDOFF.json.
 - Keep the implementation compact and project-owned; no UI component library.
 - The files array may contain only package.json, index.html, vite.config.ts, vitest.config.ts, tsconfig*.json, src/**, or public/**.
+- Every relative import must resolve to another file included in the JSON files array. Include every imported CSS file.
 - Output valid JSON.
 
 Repository context:
@@ -217,42 +253,51 @@ async function requestImplementation(prompt) {
 async function generate() {
   assertTaskPath(taskPath);
   const prompt = await buildPrompt();
-  const raw = await requestImplementation(prompt);
-  assertNoSecrets(raw, "DeepSeek response");
-
   let result;
-  try {
-    result = JSON.parse(raw);
-  } catch {
-    fail("DeepSeek response is not valid JSON");
-  }
+  let validationFeedback = "";
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const raw = await requestImplementation(`${prompt}${validationFeedback}`);
+    try {
+      assertNoSecrets(raw, "DeepSeek response");
+      result = JSON.parse(raw);
 
-  if (typeof result.summary !== "string" || result.summary.length > 240) {
-    fail("DeepSeek summary is missing or too long");
-  }
-  assertStringArray(result.open_points ?? [], "open_points", 8);
-  if (!Array.isArray(result.files) || result.files.length === 0 || result.files.length > 30) {
-    fail("DeepSeek files must contain between 1 and 30 entries");
-  }
+      if (typeof result.summary !== "string" || result.summary.length > 240) {
+        fail("DeepSeek summary is missing or too long");
+      }
+      assertStringArray(result.open_points ?? [], "open_points", 8);
+      if (!Array.isArray(result.files) || result.files.length === 0 || result.files.length > 30) {
+        fail("DeepSeek files must contain between 1 and 30 entries");
+      }
 
-  const seen = new Set();
-  let totalBytes = 0;
-  for (const file of result.files) {
-    assertGeneratedPath(file?.path);
-    if (seen.has(file.path)) fail(`Duplicate generated path: ${file.path}`);
-    seen.add(file.path);
-    if (typeof file.content !== "string" || file.content.includes("\0")) {
-      fail(`Generated content is invalid: ${file.path}`);
+      const seen = new Set();
+      let totalBytes = 0;
+      for (const file of result.files) {
+        assertGeneratedPath(file?.path);
+        if (seen.has(file.path)) fail(`Duplicate generated path: ${file.path}`);
+        seen.add(file.path);
+        if (typeof file.content !== "string" || file.content.includes("\0")) {
+          fail(`Generated content is invalid: ${file.path}`);
+        }
+        assertNoSecrets(file.content, file.path);
+        totalBytes += Buffer.byteLength(file.content, "utf8");
+      }
+
+      if (totalBytes > 500_000) fail("Generated project exceeds the 500 KB safety limit");
+      if (!seen.has("package.json")) fail("DeepSeek did not generate package.json");
+
+      const packageFile = result.files.find((file) => file.path === "package.json");
+      validatePackageJson(packageFile.content);
+      validateRelativeImports(result.files);
+      break;
+    } catch (error) {
+      if (attempt === 2) throw error;
+      console.log(`Generated candidate failed validation: ${error.message}`);
+      validationFeedback = `\n\nYour previous JSON failed validation: ${error.message}. Return a complete corrected JSON candidate.`;
+      result = undefined;
     }
-    assertNoSecrets(file.content, file.path);
-    totalBytes += Buffer.byteLength(file.content, "utf8");
   }
 
-  if (totalBytes > 500_000) fail("Generated project exceeds the 500 KB safety limit");
-  if (!seen.has("package.json")) fail("DeepSeek did not generate package.json");
-
-  const packageFile = result.files.find((file) => file.path === "package.json");
-  validatePackageJson(packageFile.content);
+  if (!result) fail("DeepSeek did not produce a valid candidate");
 
   for (const file of result.files) {
     const destination = path.join(root, ...file.path.split("/"));
@@ -323,4 +368,3 @@ try {
   console.error(`DeepSeek task runner failed: ${error.message}`);
   process.exitCode = 1;
 }
-
