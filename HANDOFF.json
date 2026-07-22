@@ -1,0 +1,10 @@
+{
+  "task": "TASK-001",
+  "status": "not_started",
+  "actor": "human",
+  "changed_files": [],
+  "checks": [],
+  "open_points": [],
+  "next_role": "deepseek"
+}
+
