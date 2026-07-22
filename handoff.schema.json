@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ai-frontend-relay-lab/handoff.schema.json",
+  "title": "AI task handoff",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task",
+    "status",
+    "actor",
+    "changed_files",
+    "checks",
+    "open_points",
+    "next_role"
+  ],
+  "properties": {
+    "task": {
+      "type": "string",
+      "pattern": "^TASK-[0-9]{3}$"
+    },
+    "status": {
+      "enum": ["not_started", "implemented", "refined", "pass", "pass_with_notes", "fail"]
+    },
+    "actor": {
+      "enum": ["deepseek", "codex", "claude", "human"]
+    },
+    "changed_files": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "checks": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "result"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 80},
+          "result": {"enum": ["pass", "fail", "not_run"]}
+        }
+      }
+    },
+    "open_points": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {"type": "string", "minLength": 1, "maxLength": 180}
+    },
+    "next_role": {
+      "enum": ["deepseek", "codex", "claude", "human", "none"]
+    }
+  }
+}
+
