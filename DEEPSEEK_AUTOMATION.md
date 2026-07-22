@@ -11,6 +11,8 @@ This repository uses a manually triggered GitHub Actions workflow to implement o
 - Governance files, workflows, scripts, secrets, and `main` are protected from model writes.
 - Dependencies are restricted to the approved React, Vite, TypeScript, Vitest, and Testing Library stack.
 - A failed typecheck, test, or build stops publication.
+- Relative imports are checked before installation; one corrected candidate is allowed when validation fails.
+- A candidate that later fails a quality check is retained as a short-lived workflow artifact for diagnosis.
 - Successful output is pushed to `ai/task-001-planner-shell` and opened as a draft pull request for Codex review.
 
 ## Manual run
